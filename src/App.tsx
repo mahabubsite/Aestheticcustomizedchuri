@@ -35,11 +35,13 @@ import {
   createFirebaseOrder,
   createFirebaseReview,
   createFirebaseMessage,
+  saveProductAdmin,
   syncAdminProducts,
   syncAdminOrders,
   syncAdminCategories,
   syncAdminSettings,
 } from './services/apiService';
+import { subscribeToProductsRealtime } from './lib/firebase';
 
 export default function App() {
   const [products, setProducts] = useState<BangleProduct[]>([]);
@@ -109,12 +111,38 @@ export default function App() {
       // ignore
     }
 
-    // 2. Fetch live data from Firebase (Admin SDK connected database: aestheticcustomizedchuri)
+    // 2. Fetch live data from Firebase (Works across all browsers, devices & static hosts like Vercel)
     fetchAllAdminData()
-      .then((data) => {
-        setProducts(data.products || []);
+      .then(async (data) => {
+        let currentProds = data.products || [];
+
+        // Self-Healing Auto-Sync:
+        // If this browser already had custom products in localStorage that were never uploaded to Firestore
+        // (e.g. from previously adding products on Vercel before direct Firestore was active),
+        // automatically upload them to Firestore now so all browsers immediately get them!
         try {
-          localStorage.setItem('cdb_bangles_products', JSON.stringify(data.products || []));
+          const localSaved = localStorage.getItem('cdb_bangles_products');
+          if (localSaved) {
+            const parsed = JSON.parse(localSaved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const existingIds = new Set(currentProds.map((p) => p.id));
+              const missingInFirestore = parsed.filter((p) => p && p.id && !existingIds.has(p.id));
+              if (missingInFirestore.length > 0) {
+                console.log(`[Auto-Sync] Syncing ${missingInFirestore.length} locally created products to Firestore...`);
+                for (const prod of missingInFirestore) {
+                  await saveProductAdmin(prod).catch(() => {});
+                }
+                currentProds = [...currentProds, ...missingInFirestore];
+              }
+            }
+          }
+        } catch {
+          // ignore auto-sync parse errors
+        }
+
+        setProducts(currentProds);
+        try {
+          localStorage.setItem('cdb_bangles_products', JSON.stringify(currentProds));
         } catch {}
 
         setOrders(data.orders || []);
@@ -147,6 +175,21 @@ export default function App() {
       .catch((err) => {
         console.warn('Firebase sync status (using cached store data):', err.message);
       });
+
+    // 3. Real-Time Firestore Listener:
+    // Any change in ANY browser or device instantly reflects in all other open browsers!
+    const unsubscribe = subscribeToProductsRealtime((liveProds) => {
+      if (Array.isArray(liveProds) && liveProds.length > 0) {
+        setProducts(liveProds);
+        try {
+          localStorage.setItem('cdb_bangles_products', JSON.stringify(liveProds));
+        } catch {}
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const refreshAllFirebaseData = async () => {

@@ -1,8 +1,12 @@
 {
+  "projectId": "aestheticcustomizedchuri",
+  "appId": "1:972899987852:web:a7d47ca50b6ddff17166a9",
   "apiKey": "AIzaSyC42ixw1H_j4mdq4V3n_mXSeofPi_JUbWA",
   "authDomain": "aestheticcustomizedchuri.firebaseapp.com",
-  "projectId": "aestheticcustomizedchuri",
+  "firestoreDatabaseId": "ai-studio-aestheticcustomi-ae58d737-aff3-41ed-8c66-601b4c628ac7",
   "storageBucket": "aestheticcustomizedchuri.firebasestorage.app",
   "messagingSenderId": "972899987852",
-  "appId": "1:972899987852:web:afc24a13ed6c87837166a9"
+  "measurementId": "",
+  "oAuthClientId": "972899987852-vm3e2sdgp2vqm8p35p1ambgaefdp2n9a.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }
