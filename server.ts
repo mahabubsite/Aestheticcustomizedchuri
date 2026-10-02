@@ -285,37 +285,50 @@ app.delete('/api/admin/orders/:id', async (req: Request, res: Response) => {
 function cleanProductData(prod: any) {
   if (!prod || typeof prod !== 'object') return prod;
 
-  // Clean images array: filter out empty strings, trim, convert Google Drive / Dropbox if applicable
+  // Clean images array: split concatenated URLs, filter out empty strings, trim, convert Google Drive / Dropbox
   let cleanImages: string[] = [];
   if (Array.isArray(prod.images)) {
-    cleanImages = prod.images
-      .filter((img: any) => typeof img === 'string' && img.trim() !== '')
-      .map((img: string) => {
-        let u = img.trim();
-        // Strip surrounding quotes
-        if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) {
-          u = u.slice(1, -1).trim();
+    const rawList: string[] = [];
+    for (const item of prod.images) {
+      if (typeof item === 'string' && item.trim()) {
+        const parts = item.split(/(?=[hH][tT][tT][pP][sS]?:\/\/)/).filter((s) => s.trim() !== '');
+        rawList.push(...parts);
+      }
+    }
+
+    const uniqueSet = new Set<string>();
+    for (const img of rawList) {
+      let u = img.trim();
+      // Strip surrounding quotes
+      if ((u.startsWith('"') && u.endsWith('"')) || (u.startsWith("'") && u.endsWith("'"))) {
+        u = u.slice(1, -1).trim();
+      }
+      // If still concatenated
+      const secondHttpIndex = u.slice(1).search(/https?:\/\//i);
+      if (secondHttpIndex !== -1) {
+        u = u.slice(0, secondHttpIndex + 1).trim();
+      }
+      // Google Drive direct transformation
+      if (u.includes('drive.google.com')) {
+        const match = u.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || u.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if (match && match[1]) {
+          u = `https://lh3.googleusercontent.com/d/${match[1]}`;
         }
-        // Google Drive direct transformation
-        if (u.includes('drive.google.com')) {
-          const match = u.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || u.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-          if (match && match[1]) {
-            return `https://lh3.googleusercontent.com/d/${match[1]}`;
-          }
-        }
+      } else if (u.includes('dropbox.com')) {
         // Dropbox direct transformation
-        if (u.includes('dropbox.com')) {
-          if (u.includes('?dl=0')) return u.replace('?dl=0', '?raw=1');
-          if (u.includes('&dl=0')) return u.replace('&dl=0', '&raw=1');
-          if (!u.includes('raw=1')) return u.includes('?') ? `${u}&raw=1` : `${u}?raw=1`;
-        }
+        if (u.includes('?dl=0')) u = u.replace('?dl=0', '?raw=1');
+        else if (u.includes('&dl=0')) u = u.replace('&dl=0', '&raw=1');
+        else if (!u.includes('raw=1')) u = u.includes('?') ? `${u}&raw=1` : `${u}?raw=1`;
+      } else if (u.includes('imgur.com') && !u.includes('i.imgur.com')) {
         // Imgur direct transformation
-        if (u.includes('imgur.com') && !u.includes('i.imgur.com')) {
-          const m = u.match(/imgur\.com\/(?:gallery\/|a\/)?([a-zA-Z0-9]+)$/);
-          if (m && m[1]) return `https://i.imgur.com/${m[1]}.jpg`;
-        }
-        return u;
-      });
+        const m = u.match(/imgur\.com\/(?:gallery\/|a\/)?([a-zA-Z0-9]+)$/);
+        if (m && m[1]) u = `https://i.imgur.com/${m[1]}.jpg`;
+      }
+      if (u && !uniqueSet.has(u)) {
+        uniqueSet.add(u);
+        cleanImages.push(u);
+      }
+    }
   }
 
   return {

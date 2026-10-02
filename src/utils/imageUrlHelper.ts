@@ -21,6 +21,13 @@ export function normalizeImageUrl(rawUrl: string): string {
 
   if (!url) return '';
 
+  // If multiple URLs were accidentally concatenated without whitespace (e.g. https://...https://...)
+  // Extract just the first one for single URL normalization
+  const secondHttpIndex = url.slice(1).search(/https?:\/\//i);
+  if (secondHttpIndex !== -1) {
+    url = url.slice(0, secondHttpIndex + 1).trim();
+  }
+
   // Data URLs (e.g. data:image/png;base64,...) are already direct
   if (url.startsWith('data:image/')) {
     return url;
@@ -96,12 +103,26 @@ export function getProxyImageUrl(url: string): string {
  */
 export function parseMultipleImageUrls(text: string): string[] {
   if (!text || typeof text !== 'string') return [];
-  const lines = text.split(/[\n,\s]+/);
+  // Split on newlines, commas, whitespace, and also split if two http(s) URLs are stuck together
+  const rawParts = text.split(/[\n,\s]+/);
+  const parts: string[] = [];
+  for (const part of rawParts) {
+    if (part.includes('http://') || part.includes('https://')) {
+      // Split on boundary right before https:// or http:// (except at index 0)
+      const subParts = part.split(/(?=[hH][tT][tT][pP][sS]?:\/\/)/);
+      parts.push(...subParts);
+    } else if (part.trim()) {
+      parts.push(part);
+    }
+  }
+
   const results: string[] = [];
-  for (const line of lines) {
-    const norm = normalizeImageUrl(line);
+  for (const item of parts) {
+    const norm = normalizeImageUrl(item);
     if (norm && (norm.startsWith('http://') || norm.startsWith('https://') || norm.startsWith('data:image/'))) {
-      results.push(norm);
+      if (!results.includes(norm)) {
+        results.push(norm);
+      }
     }
   }
   return results;
