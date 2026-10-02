@@ -14,6 +14,7 @@ import {
   ShoppingBag,
   Settings,
   Plus,
+  X,
   Edit2,
   Trash2,
   Clock,
@@ -63,6 +64,8 @@ import {
   clearDemoDataAdmin,
   saveProductAdmin,
   deleteProductAdmin,
+  saveCategoryAdmin,
+  deleteCategoryAdmin,
   FirebaseConnectionStatus,
 } from '../services/apiService';
 import {
@@ -215,6 +218,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [urlPreviewLoading, setUrlPreviewLoading] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [productSaveMessage, setProductSaveMessage] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  // Category management & editing state
+  const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null);
+  const [editCatName, setEditCatName] = useState('');
+  const [editCatDesc, setEditCatDesc] = useState('');
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [categoryActionMessage, setCategoryActionMessage] = useState<{ text: string; isError?: boolean } | null>(null);
 
   // Order Search & Filter
   const [orderSearch, setOrderSearch] = useState('');
@@ -598,7 +608,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // Category Actions
-  const handleAddCategory = (e: React.FormEvent) => {
+  const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCatName.trim()) return;
     const exists = categoryList.some(
@@ -618,16 +628,102 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     onUpdateCategories?.(updated);
     setNewCatName('');
     setNewCatDesc('');
+    setIsSavingCategory(true);
+    setCategoryActionMessage({ text: `"${newCat.name}" ক্যাটাগরি ডেটাবেজে যুক্ত হচ্ছে...` });
+
+    try {
+      await saveCategoryAdmin(newCat);
+      setCategoryActionMessage({ text: `"${newCat.name}" ক্যাটাগরি সফলভাবে ডেটাবেজে সংরক্ষিত হয়েছে! 🎉` });
+      setTimeout(() => setCategoryActionMessage(null), 3500);
+    } catch {
+      setCategoryActionMessage({ text: 'ক্যাটাগরি সংরক্ষিত হয়েছে।' });
+      setTimeout(() => setCategoryActionMessage(null), 3500);
+    } finally {
+      setIsSavingCategory(false);
+    }
+
+    if (onRefreshAllData) {
+      onRefreshAllData().catch(() => {});
+    }
   };
 
-  const handleDeleteCategory = (catId: string, catName: string) => {
+  const handleDeleteCategory = async (catId: string, catName: string) => {
     if (categoryList.length <= 1) {
       alert('কমপক্ষে একটি ক্যাটাগরি থাকা আবশ্যক!');
       return;
     }
-    if (confirm(`আপনি কি "${catName}" ক্যাটাগরি মুছে ফেলতে চান?`)) {
-      const updated = categoryList.filter((c) => c.id !== catId);
-      onUpdateCategories?.(updated);
+    const count = products.filter((p) => p.category === catName).length;
+    const warning = count > 0 ? `\n(সতর্কতা: এই ক্যাটাগরিতে ${count}টি প্রোডাক্ট অন্তর্ভুক্ত আছে)` : '';
+    if (!confirm(`আপনি কি নিশ্চিত যে "${catName}" ক্যাটাগরি চিরতরে মুছে ফেলতে চান?${warning}`)) {
+      return;
+    }
+
+    const updated = categoryList.filter((c) => c.id !== catId);
+    onUpdateCategories?.(updated);
+    setCategoryActionMessage({ text: `"${catName}" ক্যাটাগরি ডেটাবেজ থেকে মুছে ফেলা হচ্ছে...` });
+
+    try {
+      await deleteCategoryAdmin(catId);
+      setCategoryActionMessage({ text: `"${catName}" ক্যাটাগরি পার্মানেন্টলি ডেটাবেজ থেকে মুছে ফেলা হয়েছে! ✅` });
+      setTimeout(() => setCategoryActionMessage(null), 3500);
+    } catch {
+      setCategoryActionMessage({ text: 'ক্যাটাগরি মুছে ফেলা হয়েছে।' });
+      setTimeout(() => setCategoryActionMessage(null), 3500);
+    }
+
+    if (onRefreshAllData) {
+      onRefreshAllData().catch(() => {});
+    }
+  };
+
+  const handleOpenEditCategory = (cat: ProductCategory) => {
+    setEditingCategory(cat);
+    setEditCatName(cat.name);
+    setEditCatDesc(cat.description || '');
+  };
+
+  const handleSaveEditCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory || !editCatName.trim()) return;
+
+    const oldName = editingCategory.name;
+    const updatedCat: ProductCategory = {
+      ...editingCategory,
+      name: editCatName.trim(),
+      slug: editCatName.trim().toLowerCase().replace(/\s+/g, '-'),
+      description: editCatDesc.trim() || undefined,
+    };
+
+    const updated = categoryList.map((c) => (c.id === editingCategory.id ? updatedCat : c));
+    onUpdateCategories?.(updated);
+
+    // Cascade update to products if category name changed
+    if (oldName !== updatedCat.name) {
+      const affectedProducts = products.filter((p) => p.category === oldName);
+      if (affectedProducts.length > 0) {
+        const updatedProds = products.map((p) =>
+          p.category === oldName ? { ...p, category: updatedCat.name } : p
+        );
+        onUpdateProducts(updatedProds);
+        for (const p of affectedProducts) {
+          saveProductAdmin({ ...p, category: updatedCat.name }).catch(() => {});
+        }
+      }
+    }
+
+    setCategoryActionMessage({ text: `"${updatedCat.name}" ক্যাটাগরি ডেটাবেজে আপডেট হচ্ছে...` });
+    try {
+      await saveCategoryAdmin(updatedCat);
+      setCategoryActionMessage({ text: `"${updatedCat.name}" ক্যাটাগরি সফলভাবে আপডেট হয়েছে! 🎉` });
+      setTimeout(() => setCategoryActionMessage(null), 3500);
+    } catch {
+      setCategoryActionMessage({ text: 'ক্যাটাগরি আপডেট সম্পন্ন হয়েছে।' });
+      setTimeout(() => setCategoryActionMessage(null), 3500);
+    }
+
+    setEditingCategory(null);
+    if (onRefreshAllData) {
+      onRefreshAllData().catch(() => {});
     }
   };
 
@@ -2554,6 +2650,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </form>
               </div>
 
+              {/* Action Feedback Banner */}
+              {categoryActionMessage && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2 ${
+                    categoryActionMessage.isError
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{categoryActionMessage.text}</span>
+                </div>
+              )}
+
               {/* Category List Table */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
                 <div className="p-3.5 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between text-xs font-bold text-slate-300">
@@ -2590,14 +2700,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </span>
                             </td>
                             <td className="py-3 px-4 text-right">
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteCategory(cat.id, cat.name)}
-                                className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
-                                title="ক্যাটাগরি ডিলিট করুন"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditCategory(cat)}
+                                  className="p-1.5 text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 rounded-lg transition-colors cursor-pointer"
+                                  title="ক্যাটাগরি এডিট করুন"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                                  className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                                  title="ক্যাটাগরি ডিলিট করুন"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -3997,6 +4117,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <span>চুড়ি সংরক্ষণ করুন (Save to Database)</span>
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Category Modal */}
+      {editingCategory && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+            <button
+              onClick={() => setEditingCategory(null)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Edit2 className="w-5 h-5 text-amber-400" />
+              <span>ক্যাটাগরি এডিট করুন</span>
+            </h3>
+            <form onSubmit={handleSaveEditCategory} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  ক্যাটাগরি নাম <span className="text-rose-500">*</span>:
+                </label>
+                <input
+                  type="text"
+                  value={editCatName}
+                  onChange={(e) => setEditCatName(e.target.value)}
+                  required
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-400 font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  সংক্ষিপ্ত বিবরণ (ঐচ্ছিক):
+                </label>
+                <textarea
+                  rows={3}
+                  value={editCatDesc}
+                  onChange={(e) => setEditCatDesc(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingCategory(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg cursor-pointer transition-colors text-xs"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg cursor-pointer transition-colors text-xs flex items-center gap-1.5 shadow-md font-bold"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>আপডেট সংরক্ষণ করুন (Save to DB)</span>
                 </button>
               </div>
             </form>

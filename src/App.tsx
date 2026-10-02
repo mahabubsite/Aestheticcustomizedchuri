@@ -41,7 +41,7 @@ import {
   syncAdminCategories,
   syncAdminSettings,
 } from './services/apiService';
-import { subscribeToProductsRealtime } from './lib/firebase';
+import { subscribeToProductsRealtime, subscribeToCategoriesRealtime } from './lib/firebase';
 
 export default function App() {
   const [products, setProducts] = useState<BangleProduct[]>([]);
@@ -187,8 +187,18 @@ export default function App() {
       }
     });
 
+    const unsubscribeCats = subscribeToCategoriesRealtime((liveCats) => {
+      if (Array.isArray(liveCats) && liveCats.length > 0) {
+        setCategories(liveCats);
+        try {
+          localStorage.setItem('cdb_bangles_categories', JSON.stringify(liveCats));
+        } catch {}
+      }
+    });
+
     return () => {
       unsubscribe();
+      unsubscribeCats();
     };
   }, []);
 

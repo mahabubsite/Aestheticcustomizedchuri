@@ -132,7 +132,19 @@ export const saveSettingsDirect = async (settings: any): Promise<void> => {
   await setDoc(doc(db, 'settings', 'store_settings'), settings, { merge: true });
 };
 
-// 13. Subscribe to real-time product updates (Any change in one browser syncs instantly to all browsers!)
+// 13. Save single category directly in Firestore
+export const saveCategoryDirect = async (category: any): Promise<void> => {
+  if (!category || !category.id) return;
+  await setDoc(doc(db, 'categories', category.id), category, { merge: true });
+};
+
+// 14. Delete category directly from Firestore
+export const deleteCategoryDirect = async (categoryId: string): Promise<void> => {
+  if (!categoryId) return;
+  await deleteDoc(doc(db, 'categories', categoryId));
+};
+
+// 15. Subscribe to real-time product updates (Any change in one browser syncs instantly to all browsers!)
 export const subscribeToProductsRealtime = (callback: (products: any[]) => void): (() => void) => {
   return onSnapshot(
     collection(db, 'products'),
@@ -142,6 +154,20 @@ export const subscribeToProductsRealtime = (callback: (products: any[]) => void)
     },
     (err) => {
       console.warn('Realtime products subscription notice:', err.message);
+    }
+  );
+};
+
+// 16. Subscribe to real-time category updates
+export const subscribeToCategoriesRealtime = (callback: (categories: any[]) => void): (() => void) => {
+  return onSnapshot(
+    collection(db, 'categories'),
+    (snap) => {
+      const cats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      callback(cats);
+    },
+    (err) => {
+      console.warn('Realtime categories subscription notice:', err.message);
     }
   );
 };

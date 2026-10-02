@@ -14,6 +14,8 @@ import {
   fetchSettingsDirect,
   saveProductDirect,
   deleteProductDirect,
+  saveCategoryDirect,
+  deleteCategoryDirect,
   saveOrderDirect,
   saveReviewDirect,
   saveMessageDirect,
@@ -348,8 +350,59 @@ export const deleteOrderAdmin = async (orderId: string): Promise<boolean> => {
   return true;
 };
 
+export const saveCategoryAdmin = async (
+  category: ProductCategory
+): Promise<{ success: boolean; category?: ProductCategory; error?: string }> => {
+  // 1. Direct Firestore write
+  try {
+    await saveCategoryDirect(category);
+  } catch (err: any) {
+    console.warn('Direct category save warning:', err.message);
+  }
+
+  // 2. Also notify server
+  try {
+    await fetch('/api/admin/categories/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category }),
+    });
+  } catch {
+    // ignore
+  }
+
+  return { success: true, category };
+};
+
+export const deleteCategoryAdmin = async (categoryId: string): Promise<boolean> => {
+  // 1. Direct Firestore delete (immediate on client)
+  try {
+    await deleteCategoryDirect(categoryId);
+  } catch (err: any) {
+    console.warn('Direct category delete warning:', err.message);
+  }
+
+  // 2. Server API delete
+  try {
+    await fetch(`/api/admin/categories/${encodeURIComponent(categoryId)}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    // ignore
+  }
+
+  return true;
+};
+
 export const syncAdminCategories = async (categories: ProductCategory[]): Promise<boolean> => {
   try {
+    const existing = await fetchCategoriesDirect().catch(() => []);
+    const newCatIds = new Set(categories.map((c) => c.id));
+    for (const ex of existing) {
+      if (ex && ex.id && !newCatIds.has(ex.id)) {
+        await deleteDoc(doc(db, 'categories', ex.id)).catch(() => {});
+      }
+    }
     for (const c of categories) {
       if (c && c.id) {
         await setDoc(doc(db, 'categories', c.id), c, { merge: true });

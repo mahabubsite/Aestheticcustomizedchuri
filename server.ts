@@ -438,13 +438,53 @@ app.delete('/api/admin/products/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Save or Update Single Category (Admin)
+app.post('/api/admin/categories/save', async (req: Request, res: Response) => {
+  try {
+    const { category } = req.body;
+    if (!category || !category.id) {
+      return res.status(400).json({ error: 'Category data and ID required' });
+    }
+    if (adminDb) {
+      await adminDb.collection('categories').doc(category.id).set(category, { merge: true });
+    }
+    console.log(`[Firebase Admin] Category "${category.name}" (${category.id}) saved to Firestore`);
+    res.json({ success: true, category });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Category (Admin)
+app.delete('/api/admin/categories/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!adminDb) return res.status(503).json({ error: 'DB not available' });
+    await adminDb.collection('categories').doc(id).delete();
+    console.log(`[Firebase Admin] Category "${id}" deleted from Firestore`);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Batch Save Categories (Admin)
 app.post('/api/admin/categories', async (req: Request, res: Response) => {
   try {
     const { categories } = req.body;
     if (!adminDb || !Array.isArray(categories)) return res.status(400).json({ error: 'Invalid payload' });
 
+    const existingSnap = await adminDb.collection('categories').get();
+    const newIds = new Set(categories.map((c: any) => c.id));
     const batch = adminDb.batch();
+
+    // Delete categories that are no longer in the provided list
+    for (const doc of existingSnap.docs) {
+      if (!newIds.has(doc.id)) {
+        batch.delete(doc.ref);
+      }
+    }
+
     for (const cat of categories) {
       const docRef = adminDb.collection('categories').doc(cat.id);
       batch.set(docRef, cat, { merge: true });
